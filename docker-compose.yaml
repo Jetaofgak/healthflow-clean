@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # --- 1. Service Java (Proxy FHIR) ---
+  proxy-fhir:
+    build: ./healthflow
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/healthflow
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=password
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - FHIR_SERVER_URL=https://server.fire.ly
+    depends_on:
+      - postgres
+
+  # --- 2. Service DeID ---
+  deid:
+    build: ./healthflow-deid
+    ports:
+      - "8082:8082"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/healthflow
+    depends_on:
+      - postgres
+
+  # --- 3. Service Featurizer ---
+  featurizer:
+    build: ./healthflow-featurizer
+    ports:
+      - "8083:8083"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/healthflow
+    depends_on:
+      - postgres
+
+  # --- 4. Service Model ---
+  model:
+    build: ./healthflow-model
+    ports:
+      - "8084:8084"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/healthflow
+    depends_on:
+      - postgres
+
+  # --- 5. API Gateway / Orchestrateur ---
+  api:
+    build: ./healthflow-api
+    ports:
+      - "8085:8085"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/healthflow
+      # Ici, on utilise les noms des services définis ci-dessus !
+      - PROXY_URL=http://proxy-fhir:8081
+      - DEID_URL=http://deid:8082
+      - FEAT_URL=http://featurizer:8083
+      - MODEL_URL=http://model:8084
+    depends_on:
+      - postgres
+      - proxy-fhir
+
+  # --- 6. Dashboard (Front) ---
+  dashboard:
+    build: ./healthflow-dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      # Le dashboard appelle l'API.
+      # En local (navigateur), il faut passer par localhost.
+      # Sur Railway, on verra l'astuce.
+      - API_URL=http://api:8085
+    depends_on:
+      - api
+
+  # --- 7. Base de données (Interne au cluster) ---
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=healthflow
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
